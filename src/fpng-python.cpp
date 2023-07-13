@@ -37,7 +37,9 @@ static PyObject* fpng_encode_image_to_memory(PyObject *self, PyObject *args)
     unsigned int flags = 0;
     std::vector<uint8_t> out;
 
-    bool success = fpng::fpng_encode_image_to_memory(PyArray_DATA(arrData), PyArray_DIM(arrData, 1), PyArray_DIM(arrData, 0), PyArray_DIM(arrData, 2), out, flags);
+    // Release the GIL to allow other threads to run while we do the encoding.
+    bool success;
+    success = fpng::fpng_encode_image_to_memory(PyArray_DATA(arrData), PyArray_DIM(arrData, 1), PyArray_DIM(arrData, 0), PyArray_DIM(arrData, 2), out, flags);
 
     PyObject* encoded;
     if (success) {
@@ -136,14 +138,21 @@ static PyObject* fpng_decode_memory(PyObject *self, PyObject *args)
     std::vector<uint8_t> out;
     uint32_t width, height, channels;
     unsigned int desired_channels = 3;
-    int ret = fpng::fpng_decode_memory(image_bytes, image_size, out, width, height, channels, desired_channels);
 
+    int ret;
     PyObject* img;
+    // Release the GIL to allow other threads to run while we do the decoding.
+    Py_BEGIN_ALLOW_THREADS
+    ret = fpng::fpng_decode_memory(image_bytes, image_size, out, width, height, channels, desired_channels);
+
+
     if (ret == 0) {
         npy_intp dims[3] = {height, width, channels};
         PyArrayObject* numpyArray = (PyArrayObject*)PyArray_SimpleNewFromData(3, dims, NPY_UINT8, (uint8_t*)out.data());
         img = PyArray_Return(numpyArray);
-    } else {
+    }
+    Py_END_ALLOW_THREADS
+    if (ret != 0) {
         Py_INCREF(Py_None);
         img = Py_None;
     }
